@@ -58,3 +58,33 @@ def test_rename_variable_requires_function_identity():
     mcp = create_server(GhidraBackend("http://127.0.0.1:1/"))
     with pytest.raises(ToolError, match="MISSING_PARAMETER"):
         asyncio.run(mcp.call_tool("rename_variable", {"old_name": "a", "new_name": "b"}))
+
+
+def test_list_and_switch_program(fake_backend):
+    programs = {"programs": [{"id": "/a.exe", "name": "a.exe", "active": True},
+                             {"id": "/b.dll", "name": "b.dll", "active": False}],
+                "active": "/a.exe"}
+    fake_backend.ok("/programs", programs)
+    fake_backend.ok("/switch_program", {"active": "/b.dll", "name": "b.dll"})
+    mcp = create_server(GhidraBackend(fake_backend.url))
+    assert call(mcp, "list_programs") == programs
+    assert call(mcp, "switch_program", program="b.dll")["active"] == "/b.dll"
+    assert fake_backend.requests[-1][:2] == ("POST", "/switch_program")
+    assert fake_backend.requests[-1][2]["program"] == "b.dll"
+
+
+def test_program_argument_is_forwarded_only_when_given(fake_backend):
+    fake_backend.ok("/functions", {"items": [], "offset": 0, "limit": 100, "total": 0, "has_more": False})
+    mcp = create_server(GhidraBackend(fake_backend.url))
+    call(mcp, "list_functions")
+    assert "program" not in fake_backend.requests[-1][2]
+    call(mcp, "list_functions", program="/b.dll")
+    assert fake_backend.requests[-1][2]["program"] == "/b.dll"
+
+
+def test_every_program_tool_accepts_program_argument():
+    mcp = create_server(GhidraBackend())
+    for tool in asyncio.run(mcp.list_tools()):
+        if tool.name == "list_programs":
+            continue
+        assert "program" in tool.inputSchema["properties"], tool.name

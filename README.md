@@ -104,6 +104,14 @@ Run the following command:
 claude mcp add ghidra -- uvx --from git+https://github.com/LaurieWired/GhidraMCP ghidra-mcp --ghidra-server http://127.0.0.1:8080/
 ```
 
+## Multiple programs
+
+Open several programs in one CodeBrowser and the AI can work across them:
+
+- `list_programs` shows every open program (id, name, architecture, which one is active).
+- `switch_program` brings a program to the front in the GUI; tools called without `program` use the active one.
+- Every tool takes an optional `program` (id or name from `list_programs`) to target a program directly, without changing what you see in the GUI. This makes cross-binary work easy, e.g. compare `decompile_function_by_address` in `app.exe` and `lib.dll` in consecutive calls.
+
 ## Headless (no Ghidra GUI)
 `ghidra-mcp` can also import and analyze a binary itself using [PyGhidra](https://pypi.org/project/pyghidra/), with no Ghidra GUI running. This needs Python 3.10–3.13, the GhidraMCP extension installed in Ghidra (or `--extension-jar /path/to/GhidraMCP.jar`), and `GHIDRA_INSTALL_DIR` set to your Ghidra 12.1.4 directory:
 

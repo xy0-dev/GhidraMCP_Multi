@@ -1,5 +1,7 @@
 package com.lauriewired.ghidramcp.core;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -18,6 +20,61 @@ public interface ProgramProvider {
 
 	/** @return the target program, or null if none is open */
 	Program getProgram();
+
+	/**
+	 * @return every program that can be targeted, the active one first. The default exposes just
+	 *         the single program of {@link #getProgram()}.
+	 */
+	default List<Program> getOpenPrograms() {
+		Program program = getProgram();
+		return program == null ? List.of() : List.of(program);
+	}
+
+	/** Makes the given program the active one in the GUI. */
+	default void showProgram(Program program) {
+		throw McpException.unsupported("Switching the active program is not available in " + mode() + " mode");
+	}
+
+	/** Stable identifier of a program: its project path, or its name if it was never saved. */
+	static String programId(Program program) {
+		return program.getDomainFile() != null ? program.getDomainFile().getPathname()
+				: program.getName();
+	}
+
+	/**
+	 * Finds an open program by id (project path) or, if that is unambiguous, by name. Matching is
+	 * case-insensitive.
+	 */
+	default Program resolveProgram(String selector) {
+		List<Program> open = getOpenPrograms();
+		if (open.isEmpty()) {
+			throw McpException.noProgram();
+		}
+		for (Program p : open) {
+			if (programId(p).equalsIgnoreCase(selector)) {
+				return p;
+			}
+		}
+		List<Program> byName = new ArrayList<>();
+		for (Program p : open) {
+			if (p.getName().equalsIgnoreCase(selector)) {
+				byName.add(p);
+			}
+		}
+		if (byName.size() == 1) {
+			return byName.get(0);
+		}
+		if (byName.size() > 1) {
+			throw McpException.ambiguous("'" + selector + "' matches " + byName.size() +
+				" open programs; use one of the ids from list_programs: " + ids(byName));
+		}
+		throw McpException.notFound("No open program matches '" + selector + "'. Open programs: " +
+			ids(open));
+	}
+
+	private static String ids(List<Program> programs) {
+		return String.join(", ", programs.stream().map(ProgramProvider::programId).toList());
+	}
 
 	/** @return "gui" or "headless" */
 	String mode();

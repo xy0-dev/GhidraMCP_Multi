@@ -1,6 +1,8 @@
 package com.lauriewired.ghidramcp.gui;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -34,6 +36,37 @@ public class GuiProgramProvider implements ProgramProvider {
 	public Program getProgram() {
 		ProgramManager pm = tool.getService(ProgramManager.class);
 		return pm != null ? pm.getCurrentProgram() : null;
+	}
+
+	@Override
+	public List<Program> getOpenPrograms() {
+		ProgramManager pm = tool.getService(ProgramManager.class);
+		if (pm == null) {
+			return List.of();
+		}
+		Program current = pm.getCurrentProgram();
+		List<Program> programs = new ArrayList<>();
+		if (current != null) {
+			programs.add(current);
+		}
+		for (Program p : pm.getAllOpenPrograms()) {
+			if (p != current && !p.isClosed()) {
+				programs.add(p);
+			}
+		}
+		return programs;
+	}
+
+	@Override
+	public void showProgram(Program program) {
+		ProgramManager pm = tool.getService(ProgramManager.class);
+		if (pm == null) {
+			throw McpException.unsupported("Program manager service not available");
+		}
+		runWrite(() -> {
+			pm.setCurrentProgram(program);
+			return null;
+		});
 	}
 
 	@Override

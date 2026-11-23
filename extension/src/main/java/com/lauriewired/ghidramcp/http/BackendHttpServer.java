@@ -5,7 +5,9 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -31,7 +33,7 @@ import ghidra.util.task.TaskMonitor;
  */
 public final class BackendHttpServer {
 
-	public static final String VERSION = "2.0.0";
+	public static final String VERSION = "2.1.0";
 
 	private static final Set<String> ALLOWED_HOSTS = Set.of("127.0.0.1", "localhost", "[::1]");
 
@@ -89,6 +91,8 @@ public final class BackendHttpServer {
 		TaskMonitor monitor = TaskMonitor.DUMMY;
 
 		routes.put("/health", new Route("GET", false, (q, p) -> health(p)));
+		routes.put("/programs", new Route("GET", false, (q, p) -> listPrograms()));
+		routes.put("/switch_program", new Route("POST", false, (q, p) -> switchProgram(q.required("program"))));
 		get("/program_info", (q, p) -> service.getProgramInfo(p));
 
 		get("/functions", (q, p) -> service.listFunctions(p, q.optional("filter"), q.offset(), q.limit(100)));
@@ -101,8 +105,8 @@ public final class BackendHttpServer {
 		get("/strings", (q, p) -> service.listStrings(p, q.optional("filter"), q.offset(), q.limit(200)));
 
 		get("/function", (q, p) -> service.getFunction(p, q.required("address")));
-		get("/current_address", (q, p) -> Map.of("address", currentAddress().toString()));
-		get("/current_function", (q, p) -> service.getFunctionContaining(p, currentAddress()));
+		get("/current_address", (q, p) -> Map.of("address", currentAddress(p).toString()));
+		get("/current_function", (q, p) -> service.getFunctionContaining(p, currentAddress(p)));
 		get("/decompile", (q, p) -> service.decompileByName(p, q.required("name"), monitor));
 		get("/decompile_function", (q, p) -> service.decompileByAddress(p, q.required("address"), monitor));
 		get("/disassemble_function", (q, p) -> service.disassemble(p, q.required("address"), q.offset(), q.limit(500)));
@@ -131,8 +135,41 @@ public final class BackendHttpServer {
 		routes.put(path, new Route("POST", true, handler));
 	}
 
-	private Address currentAddress() {
+	/** The GUI cursor belongs to the active program, so it only means something for that one. */
+	private Address currentAddress(Program program) {
+		if (program != provider.getProgram()) {
+			throw McpException.invalidParameter("The current location is only available for the " +
+				"active program; omit 'program' or switch to '" + program.getName() + "' first");
+		}
 		return provider.getCurrentAddress();
+	}
+
+	private Map<String, Object> listPrograms() {
+		Program active = provider.getProgram();
+		List<Map<String, Object>> items = new ArrayList<>();
+		for (Program p : provider.getOpenPrograms()) {
+			Map<String, Object> item = new LinkedHashMap<>();
+			item.put("id", ProgramProvider.programId(p));
+			item.put("name", p.getName());
+			item.put("language_id", p.getLanguageID().toString());
+			item.put("format", p.getExecutableFormat());
+			item.put("active", p == active);
+			item.put("unsaved_changes", p.isChanged());
+			items.add(item);
+		}
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("programs", items);
+		result.put("active", active != null ? ProgramProvider.programId(active) : null);
+		return result;
+	}
+
+	private Map<String, Object> switchProgram(String selector) {
+		Program target = provider.resolveProgram(selector);
+		provider.showProgram(target);
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("active", ProgramProvider.programId(target));
+		result.put("name", target.getName());
+		return result;
 	}
 
 	private Map<String, Object> health(Program program) {
@@ -175,9 +212,18 @@ public final class BackendHttpServer {
 					path + " requires " + route.method());
 			}
 			Request request = Request.parse(exchange);
-			Program program = provider.getProgram();
-			if (route.needsProgram() && program == null) {
-				throw McpException.noProgram();
+			Program program = null;
+			if (route.needsProgram()) {
+				String selector = request.optional("program");
+				program = selector != null && !selector.isBlank()
+						? provider.resolveProgram(selector.trim())
+						: provider.getProgram();
+				if (program == null) {
+					throw McpException.noProgram();
+				}
+			}
+			else if (path.equals("/health")) {
+				program = provider.getProgram();
 			}
 			send(exchange, 200, Json.success(route.handler().handle(request, program)));
 		}
